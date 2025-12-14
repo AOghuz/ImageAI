@@ -4,11 +4,12 @@ namespace Wallet.Application.Abstractions;
 
 public interface IPaymentService
 {
-    /// Kullanıcı bakiyesini artırmak için ödeme niyeti (checkout) oluşturur.
-    Task<TopUpIntentResponse> CreateTopUpIntentAsync(Guid userId, TopUpIntentRequest request, CancellationToken ct = default);
+    // Aktif Coin paketlerini listeler (Mağaza ekranı için)
+    Task<List<CoinPackageDto>> GetActivePackagesAsync();
 
-    /// Sağlayıcı webhook çağrısını işler (idempotent).
-    Task HandleProviderWebhookAsync(string provider, string rawBody, string? signature, CancellationToken ct = default);
-    Task<List<CoinPackageDto>> GetActivePackagesAsync(CancellationToken ct = default);
-    Task<TopUpIntentResponse> CreateTopUpIntentFromPackageAsync(Guid userId, Guid packageId, TopUpIntentRequest request, CancellationToken ct = default);
+    // Satın alma işlemini başlatır (Iyzico/Stripe formunu hazırlar)
+    Task<PaymentInitiateResultDto> InitiatePaymentAsync(Guid userId, Guid packageId);
+
+    // Webhook veya Callback'ten gelen sonucu işler
+    Task<PaymentResultDto> HandleCallbackAsync(string providerTransactionId, bool isSuccess);
 }

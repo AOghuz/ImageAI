@@ -4,11 +4,6 @@ using Identity.EntityLayer.Entities;
 using Identity.PersistenceLayer.Db;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace Identity.BusinessLayer.Services
 {
@@ -16,20 +11,19 @@ namespace Identity.BusinessLayer.Services
     {
         private readonly UserManager<AppUser> _users;
         private readonly SignInManager<AppUser> _signin;
-        private readonly RoleManager<AppRole> _roles;
         private readonly IJwtTokenService _jwt;
         private readonly IGenericRepository<RefreshToken> _refreshRepo;
         private readonly AppDbContext _db;
 
+        // RoleManager'a artık burada ihtiyacımız yok, sildik.
         public AuthService(
             UserManager<AppUser> users,
             SignInManager<AppUser> signin,
-            RoleManager<AppRole> roles,
             IJwtTokenService jwt,
             IGenericRepository<RefreshToken> refreshRepo,
             AppDbContext db)
         {
-            _users = users; _signin = signin; _roles = roles; _jwt = jwt; _refreshRepo = refreshRepo; _db = db;
+            _users = users; _signin = signin; _jwt = jwt; _refreshRepo = refreshRepo; _db = db;
         }
 
         public async Task<AuthResponse> RegisterAsync(RegisterRequest request, string? ip = null, CancellationToken ct = default)
@@ -49,8 +43,7 @@ namespace Identity.BusinessLayer.Services
             if (!result.Succeeded)
                 throw new InvalidOperationException(string.Join("; ", result.Errors.Select(e => e.Description)));
 
-            if (!await _roles.RoleExistsAsync("user"))
-                await _roles.CreateAsync(new AppRole { Name = "user" });
+            // GÜNCELLEME: Rol kontrolünü kaldırdık, direkt atıyoruz. Program.cs'te oluşturduk.
             await _users.AddToRoleAsync(user, "user");
 
             return await IssueTokensAsync(user, ip, ct);
@@ -61,14 +54,22 @@ namespace Identity.BusinessLayer.Services
             var user = await _users.Users.FirstOrDefaultAsync(u => u.Email == request.Email, ct);
             if (user == null) throw new InvalidOperationException("Kullanıcı bulunamadı.");
 
-            var pass = await _signin.CheckPasswordSignInAsync(user, request.Password, false);
-            if (!pass.Succeeded) throw new InvalidOperationException("Geçersiz giriş.");
+            // GÜVENLİK: lockoutOnFailure: true yaptık.
+            // Üst üste yanlış girişte hesabı kilitler.
+            var pass = await _signin.CheckPasswordSignInAsync(user, request.Password, lockoutOnFailure: true);
+
+            if (pass.IsLockedOut) throw new InvalidOperationException("Hesabınız çok fazla başarısız deneme nedeniyle kilitlendi. Lütfen daha sonra tekrar deneyin.");
+            if (!pass.Succeeded) throw new InvalidOperationException("Geçersiz e-posta veya şifre.");
 
             return await IssueTokensAsync(user, ip, ct);
         }
 
+        // ... Diğer metodlar (RefreshAsync, RevokeAsync, IssueTokensAsync) aynı kalacak ...
+        // (Buraya yer kaplamaması için diğer metodları tekrar kopyalamadım, mevcut kodunuzdaki halleriyle kalabilirler)
         public async Task<AuthResponse> RefreshAsync(RefreshRequest request, string? ip = null, CancellationToken ct = default)
         {
+            // Mevcut kodunuzdaki RefreshAsync içeriği aynen kalacak
+            // Sadece referans olması için başını ekliyorum:
             var token = await _db.RefreshTokens.FirstOrDefaultAsync(x => x.Token == request.RefreshToken, ct);
             if (token == null || !token.IsActive) throw new InvalidOperationException("Geçersiz refresh token.");
 
@@ -85,6 +86,7 @@ namespace Identity.BusinessLayer.Services
 
         public async Task RevokeAsync(RefreshRevokeRequest request, string? ip = null, CancellationToken ct = default)
         {
+            // Mevcut kodunuzdaki RevokeAsync içeriği aynen kalacak
             var token = await _db.RefreshTokens.FirstOrDefaultAsync(x => x.Token == request.RefreshToken, ct);
             if (token == null || !token.IsActive) return;
 
@@ -97,6 +99,7 @@ namespace Identity.BusinessLayer.Services
 
         public async Task<UserDto> GetMeAsync(Guid userId, CancellationToken ct = default)
         {
+            // Mevcut kodunuzdaki GetMeAsync içeriği aynen kalacak
             var user = await _users.FindByIdAsync(userId.ToString());
             if (user == null) throw new InvalidOperationException("Kullanıcı bulunamadı.");
             return new UserDto(user.Id, user.Email!, user.DisplayName);
@@ -104,6 +107,7 @@ namespace Identity.BusinessLayer.Services
 
         private async Task<AuthResponse> IssueTokensAsync(AppUser user, string? ip, CancellationToken ct, RefreshToken? replacedBy = null)
         {
+            // Mevcut kodunuzdaki IssueTokensAsync içeriği aynen kalacak
             var roles = await _users.GetRolesAsync(user);
             var access = _jwt.CreateAccessToken(user, roles);
 

@@ -1,10 +1,15 @@
-﻿namespace ImageProcessingService.Services.Fal.Abstract.Requests;
+﻿using System.Text.Json.Serialization;
 
-public sealed class ImageEditRequest
+namespace ImageProcessingService.Services.Fal.Abstract.Requests;
+
+public class ImageEditRequest
 {
-    public required string Prompt { get; init; }
-    public required IReadOnlyList<string> ImageDataUris { get; init; } // controller dönüştürür
-    public int? NumImages { get; init; }
-    public string? OutputFormat { get; init; }
-    public Dictionary<string, object>? Extras { get; init; }
+    public string ImageUrl { get; set; } = default!;
+    public string? Prompt { get; set; } // Bazı modellerde opsiyonel
+    public string? MaskUrl { get; set; }
+    public string? OutputFormat { get; set; }
+
+    // Dökümanlardaki: strength, guidance_scale, subject_detection vb. buraya gelecek.
+    [JsonExtensionData]
+    public Dictionary<string, object> AdditionalParams { get; set; } = new();
 }

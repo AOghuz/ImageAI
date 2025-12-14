@@ -1,50 +1,33 @@
-﻿using System.ComponentModel.DataAnnotations;
-using FluentValidation;
+﻿namespace Wallet.Application.DTOs;
 
-namespace Wallet.Application.DTOs;
+// Mağazada gösterilecek Paket
+public class CoinPackageDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = default!;
+    public decimal Price { get; set; }      // TRY
+    public decimal CoinAmount { get; set; } // Coin
+    public string? Description { get; set; }
+}
 
-// Main DTOs
-// Wallet.Application/DTOs/TopUpIntentRequest.cs
-public record TopUpIntentRequest(
-    [Range(100, long.MaxValue, ErrorMessage = "Amount must be at least 100 kuruş (1 TL)")]
-    long AmountInKurus,
+// Satın alma isteği
+public class PaymentInitiateDto
+{
+    public Guid PackageId { get; set; }
+}
 
-    [Required]
-    [StringLength(32, MinimumLength = 1)]
-    string Provider,
+// Ödeme başlatma sonucu (Frontend'e Iyzico formunu veya linkini döner)
+public class PaymentInitiateResultDto
+{
+    public string PaymentId { get; set; } = default!; // Sistemimizdeki PaymentRecord Id
+    public string ProviderTransactionId { get; set; } = default!;
+    public string? HtmlContent { get; set; } // Iyzico iframe html
+    public string? PaymentUrl { get; set; }  // Stripe link
+}
 
-    [Url][StringLength(512)] string? SuccessReturnUrl = null,
-    [Url][StringLength(512)] string? CancelReturnUrl = null,
-    [StringLength(256)] string? IdempotencyKey = null,
-
-    // ⬇️ yeni opsiyoneller (mevcut çağrıları bozmaz)
-    decimal? Price = null,
-    string? Currency = "TRY",
-    Guid? PackageId = null,
-    string? PackageName = null
-   
-);
-
-
-public record TopUpIntentResponse(
-    string Provider,
-    string IntentId,
-    string? CheckoutUrl,
-    string? ClientSecret,
-    DateTime ExpiresAtUtc
-);
-
-public record PaymentWebhookEnvelope(
-    string Provider,
-    string RawBody,
-    string? Signature
-);
-
-public record CoinPackageDto(
-    Guid Id,
-    string Name,
-    decimal PriceUSD,
-    long CoinAmountInKurus,
-    string? Description,
-    int DisplayOrder = 0
-);
+public class PaymentResultDto
+{
+    public bool IsSuccess { get; set; }
+    public string Message { get; set; } = default!;
+    public decimal NewBalance { get; set; }
+}

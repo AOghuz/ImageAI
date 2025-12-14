@@ -1,26 +1,26 @@
-﻿namespace Wallet.Entity.Entities;
+﻿using Wallet.Entity.Common;
+
+namespace Wallet.Entity.Entities;
 
 /// <summary>
 /// Kullanıcıların satın alabileceği coin paketleri
 /// </summary>
-public class CoinPackage
+public class CoinPackage : BaseEntity
 {
-    public Guid Id { get; set; } = Guid.NewGuid();
-
     /// <summary>
-    /// Paket adı (örn: "Starter Pack", "Premium Pack")
+    /// Paket adı (örn: "Başlangıç Paketi")
     /// </summary>
     public string Name { get; set; } = default!;
 
     /// <summary>
-    /// Kullanıcının ödeyeceği dolar miktarı (iyzico'dan tahsil edilecek)
+    /// Kullanıcının ödeyeceği tutar (TRY)
     /// </summary>
-    public decimal PriceUSD { get; set; }
+    public decimal Price { get; set; }
 
     /// <summary>
-    /// Kullanıcının cüzdanına eklenecek coin/kredi miktarı (kuruş cinsinden)
+    /// Kullanıcının cüzdanına eklenecek Coin miktarı
     /// </summary>
-    public long CoinAmountInKurus { get; set; }
+    public decimal CoinAmount { get; set; }
 
     /// <summary>
     /// Paket aktif mi?
@@ -28,23 +28,18 @@ public class CoinPackage
     public bool IsActive { get; set; } = true;
 
     /// <summary>
-    /// Paket açıklaması (örn: "Most Popular", "Best Value")
+    /// Paket açıklaması
     /// </summary>
     public string? Description { get; set; }
 
     /// <summary>
-    /// Paket oluşturulma tarihi
-    /// </summary>
-    public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
-
-    /// <summary>
-    /// Gösterim sırası (küçük önce gelir)
+    /// Gösterim sırası
     /// </summary>
     public int DisplayOrder { get; set; } = 0;
 }
 
-// Örnek veriler için extension method
-public static class CoinPackageExtensions
+// Varsayılan paketleri oluşturan yardımcı sınıf (Seeding için kullanılabilir)
+public static class CoinPackageSeed
 {
     public static List<CoinPackage> GetDefaultPackages()
     {
@@ -53,30 +48,30 @@ public static class CoinPackageExtensions
             new CoinPackage
             {
                 Id = Guid.NewGuid(),
-                Name = "Starter Pack",
-                PriceUSD = 1.00m,
-                CoinAmountInKurus = 10000, // 100 TL değerinde kredi
-                Description = "Perfect for trying out our services",
+                Name = "Başlangıç Paketi",
+                Price = 100.00m,       // 100 TL
+                CoinAmount = 100,      // 100 Coin
+                Description = "Hizmetlerimizi denemek için ideal.",
                 DisplayOrder = 1,
                 IsActive = true
             },
             new CoinPackage
             {
                 Id = Guid.NewGuid(),
-                Name = "Popular Pack",
-                PriceUSD = 3.00m,
-                CoinAmountInKurus = 35000, // 350 TL değerinde kredi (bonus: +50 TL)
-                Description = "Most Popular - Best Value!",
+                Name = "Popüler Paket",
+                Price = 250.00m,       // 250 TL
+                CoinAmount = 300,      // 250 Coin + 50 Bonus
+                Description = "En çok tercih edilen paket!",
                 DisplayOrder = 2,
                 IsActive = true
             },
             new CoinPackage
             {
                 Id = Guid.NewGuid(),
-                Name = "Premium Pack",
-                PriceUSD = 5.00m,
-                CoinAmountInKurus = 60000, // 600 TL değerinde kredi (bonus: +100 TL)
-                Description = "Maximum savings for heavy users",
+                Name = "Pro Paket",
+                Price = 500.00m,       // 500 TL
+                CoinAmount = 650,      // 500 Coin + 150 Bonus
+                Description = "Sürekli kullanım için avantajlı.",
                 DisplayOrder = 3,
                 IsActive = true
             }

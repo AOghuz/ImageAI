@@ -4,12 +4,12 @@ namespace Wallet.Application.Abstractions;
 
 public interface IWalletService
 {
-    /// Kullanıcının cüzdanını yoksa oluşturur, varsa döner (idempotent).
-    Task<EnsureWalletResult> EnsureWalletAsync(Guid userId, CancellationToken ct = default);
+    // Kullanıcının cüzdanını oluşturur (Identity register sonrası)
+    Task CreateWalletAsync(Guid userId);
 
-    /// Anlık bakiye bilgisini döner.
-    Task<BalanceDto> GetBalanceAsync(Guid userId, CancellationToken ct = default);
+    // Güncel bakiye (Coin)
+    Task<WalletBalanceDto> GetBalanceAsync(Guid userId);
 
-    /// Hareket listesini sayfalı döner.
-    Task<ListTransactionsResponse> ListTransactionsAsync(Guid userId, ListTransactionsRequest request, CancellationToken ct = default);
+    // Cüzdan hareketleri (Pagination ile)
+    Task<PagedResult<WalletTransactionDto>> GetTransactionsAsync(Guid userId, int page, int pageSize);
 }

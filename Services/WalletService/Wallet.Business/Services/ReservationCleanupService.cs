@@ -7,36 +7,44 @@ namespace Wallet.Business.Services;
 
 public class ReservationCleanupService : BackgroundService
 {
-    private readonly IServiceProvider _services;
+    private readonly IServiceProvider _serviceProvider;
     private readonly ILogger<ReservationCleanupService> _logger;
 
-    public ReservationCleanupService(IServiceProvider services, ILogger<ReservationCleanupService> logger)
+    public ReservationCleanupService(
+        IServiceProvider serviceProvider,
+        ILogger<ReservationCleanupService> logger)
     {
-        _services = services;
+        _serviceProvider = serviceProvider;
         _logger = logger;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        _logger.LogInformation("Reservation Cleanup Service is starting.");
+
         while (!stoppingToken.IsCancellationRequested)
         {
             try
             {
-                using var scope = _services.CreateScope();
-                var reservationService = scope.ServiceProvider.GetRequiredService<IReservationService>();
-
-                var expiredCount = await reservationService.ExpireAndReleaseStaleReservationsAsync(stoppingToken);
-                if (expiredCount > 0)
+                using (var scope = _serviceProvider.CreateScope())
                 {
-                    _logger.LogInformation("Cleaned up {Count} expired reservations", expiredCount);
+                    var reservationService = scope.ServiceProvider.GetRequiredService<IReservationService>();
+
+                    // DÜZELTME BURADA: 
+                    // Başındaki "var result =" ifadesini kaldırdık. 
+                    // Sadece await ediyoruz çünkü metod void (Task) dönüyor.
+                    await reservationService.ExpireAndReleaseStaleReservationsAsync(stoppingToken);
                 }
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error during reservation cleanup");
+                _logger.LogError(ex, "Error occurred while cleaning up stale reservations.");
             }
 
+            // 5 dakikada bir çalış (veya istediğin süre)
             await Task.Delay(TimeSpan.FromMinutes(5), stoppingToken);
         }
+
+        _logger.LogInformation("Reservation Cleanup Service is stopping.");
     }
 }

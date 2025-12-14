@@ -1,23 +1,28 @@
 ﻿using ImageProcessingService.Integrations.Fal;
 using ImageProcessingService.Services.Fal.Abstract.Requests;
+using ImageProcessingService.Services.Fal.Generic.Storage;
 
 namespace ImageProcessingService.Services.Fal.Adapters.Core;
 
 public interface IFalModelAdapter
 {
-    string Key { get; }                     // appsettings: FalModels altındaki key
+    // Bu adapter hangi modelleri destekliyor? (Örn: "fal-ai/flux-pro", "fal-ai/flux/srpo")
+    IEnumerable<string> SupportedModels { get; }
+
     bool SupportsTextToImage { get; }
     bool SupportsImageEdit { get; }
 
-    int ClampNumImages(int? n, FalModelConfig cfg);
-    string NormalizeFormat(string? fmt, FalModelConfig cfg);
+    // Text-to-Image için Payload (JSON) ve Path hazırlama
+    object BuildTextToImagePayload(TextToImageRequest req, FalModelConfig config);
+    string GetTextToImagePath(FalModelConfig config);
 
-    string GetTextToImagePath(FalModelConfig cfg);   // genelde cfg.ModelPath
-    string GetImageEditPath(FalModelConfig cfg);     // genelde cfg.ModelPath + "/edit"
+    // Image-Edit için Payload (JSON) ve Path hazırlama
+    object BuildImageEditPayload(ImageEditRequest req, FalModelConfig config);
+    string GetImageEditPath(FalModelConfig config);
 
-    object BuildTextToImagePayload(TextToImageRequest req, FalModelConfig cfg);
-    object BuildImageEditPayload(ImageEditRequest req, FalModelConfig cfg);
+    // Fal.AI'den gelen sonucu işleyip bizim ProcessingResult formatına çevirme
+    Task<ProcessingResult> MapToResultAsync(dynamic jobResult, IGeneratedFileStore fileStore);
 
-    // Bazı modeller result şemasını farklı dönebilir diye bırakıyoruz.
-    IReadOnlyList<string> ExtractImageUrls(FalResult result);
+    // Servis katmanında URL listesi gerekirse diye (Opsiyonel ama kullanışlı)
+    List<string> ExtractImageUrls(dynamic jobResult);
 }

@@ -1,51 +1,57 @@
-﻿using System;
+﻿using Wallet.Entity.Common;
+using Wallet.Entity.Enums;
 
-namespace Wallet.Entity.Entities
+namespace Wallet.Entity.Entities;
+
+/// <summary>
+/// Ödeme sağlayıcı (Iyzico vb.) işlem kayıtları.
+/// </summary>
+public class PaymentRecord : BaseEntity
 {
+    public Guid WalletAccountId { get; set; }
+
+    // İlişki (Navigation Property)
+    public virtual WalletAccount WalletAccount { get; set; } = default!;
+
+    // "Iyzico", "Stripe" vb.
+    public string Provider { get; set; } = default!;
+
+    // Ödeme sağlayıcısındaki benzersiz işlem ID'si (PaymentId)
+    public string? ProviderTransactionId { get; set; }
+
+    // Grup/Conversation ID'si (Gerekirse)
+    public string? ProviderGroupKey { get; set; }
+
+    // İşlem durumu
+    public PaymentStatus Status { get; set; } = PaymentStatus.Pending;
+
     /// <summary>
-    /// Ödeme sağlayıcı (iyzico/stripe vb.) dönüşlerinin kaydı.
-    /// Webhook ve manuel doğrulamalar için audit amacıyla saklanır.
+    /// Kullanıcının ödediği gerçek para tutarı (TRY)
     /// </summary>
-    // Wallet.Entity.Entities/PaymentRecord.cs
-    // Wallet.Entity.Entities/PaymentRecord.cs
-    public class PaymentRecord
-    {
-        public Guid Id { get; set; } = Guid.NewGuid();
+    public decimal PaidAmount { get; set; }
 
-        public Guid WalletAccountId { get; set; }
-        public WalletAccount WalletAccount { get; set; } = default!;
+    /// <summary>
+    /// Para birimi (TRY)
+    /// </summary>
+    public string Currency { get; set; } = "TRY";
 
-        public string Provider { get; set; } = default!;        // "iyzico", "test", ...
-        public string ProviderIntentId { get; set; } = default!; // token / conversationId vs.
-        public string? ProviderTxnId { get; set; }               // paymentId
+    /// <summary>
+    /// Karşılığında cüzdana yüklenen Coin miktarı
+    /// </summary>
+    public decimal CoinAmount { get; set; }
 
-        public PaymentStatus Status { get; set; } = PaymentStatus.Pending;
+    /// <summary>
+    /// Hangi paket satın alındı? (Tarihçe için ID ve İsim saklanır)
+    /// </summary>
+    public Guid? PackageId { get; set; }
+    public string? PackageNameSnapshot { get; set; }
 
-        /// Cüzdana eklenecek coin/kredi (kuruş)
-        public long AmountInKurus { get; set; }
+    // İhtiyaç halinde ham JSON verisi (Debug için)
+    public string? RawResponse { get; set; }
 
-        /// Para birimi (TRY sabit kalsın)
-        public string Currency { get; set; } = "TRY";
+    // Ödeme ne zaman tamamlandı?
+    public DateTime? CompletedAt { get; set; }
 
-        /// Paket snapshot
-        public Guid? PackageId { get; set; }
-        public string? PackageNameSnapshot { get; set; }
-        public decimal? Price { get; set; }                   // << KALDI
-
-        public string? RawPayloadJson { get; set; }
-        public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
-        public DateTime? ConfirmedAtUtc { get; set; }
-
-        public string? IdempotencyKey { get; set; }
-    }
-
-
-
-    public enum PaymentStatus
-    {
-        Pending = 0,
-        Succeeded = 1,
-        Failed = 2,
-        Canceled = 3
-    }
+    // İstemci tarafında tekrarı önlemek için anahtar
+    public string? IdempotencyKey { get; set; }
 }

@@ -1,7 +1,9 @@
 ﻿namespace Wallet.Application.DTOs;
 
-public record Paging(int Skip = 0, int Take = 20);
-
-public record ListTransactionsRequest(Paging Paging);
-
-public record ListTransactionsResponse(IReadOnlyList<TransactionDto> Items, int Total);
+public class PagedResult<T>
+{
+    public List<T> Items { get; set; } = new();
+    public int TotalCount { get; set; }
+    public int Page { get; set; }
+    public int PageSize { get; set; }
+}

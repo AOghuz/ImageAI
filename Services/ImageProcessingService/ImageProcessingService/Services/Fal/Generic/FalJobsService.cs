@@ -5,6 +5,7 @@ using ImageProcessingService.Services.Fal.Adapters.Core;
 using ImageProcessingService.Services.Fal.Generic.Storage;
 using ImageProcessingService.Services.Wallet;
 using Microsoft.Extensions.Options;
+using System.Text.Json;
 
 namespace ImageProcessingService.Services.Fal.Generic;
 
@@ -41,6 +42,7 @@ public sealed class FalJobsService : IFalJobsService
 
     public async Task<ProcessingResult> TextToImageAsync(string modelKey, TextToImageRequest req, string userId, string authToken)
     {
+        // 1. Adapter Kontrolü
         if (!TryGetModel(modelKey, out var adapter, out var cfg, out var err))
             return Fail(err);
 
@@ -52,41 +54,52 @@ public sealed class FalJobsService : IFalJobsService
 
         try
         {
-            var coin = GetPrice(modelKey, "TextToImage");
-            reservationId = (await _wallet.CreateReservationAsync(
-                userId, new CreateReservationRequest(jobId, coin, 30), authToken)).ReservationId;
+            // 2. REZERVASYON (Fiyat Yok, Sadece Model Adı Var)
+            // Wallet API veritabanından 'modelKey'e bakarak fiyatı bulacak.
+            var resResponse = await _wallet.CreateReservationAsync(
+                userId,
+                new CreateReservationRequest(jobId, modelKey, 30),
+                authToken);
 
-            // ACTION path (submit) ve BASE path (status/result) ayır
-            var submitPath = adapter.GetTextToImagePath(cfg); // ör: "fal-ai/flux/srpo" ya da ".../text-to-image"
-            var basePath = cfg.ModelPath!;                  // her zaman modelin kök path'i (ör: "fal-ai/flux")
+            reservationId = resResponse.ReservationId;
 
+            // 3. FAL API İşlemleri
+            var submitPath = adapter.GetTextToImagePath(cfg);
+            var basePath = cfg.ModelPath!;
+
+            // Adapter, PropertyBag içindeki özel parametreleri de payload'a ekler
             var payload = adapter.BuildTextToImagePayload(req, cfg);
             var requestId = await _queue.SubmitAsync(submitPath, payload);
 
+            // 4. Polling (Bekleme)
             var completed = await PollUntilCompleted(basePath, requestId);
             if (!completed)
             {
-                await Release(userId, reservationId.Value, "FAL zaman aşımı veya hata", authToken);
-                return new ProcessingResult(false, null, "FAL zaman aşımı veya hata", reservationId);
+                await Release(userId, reservationId.Value, "FAL zaman aşımı/hata", authToken);
+                return Fail("FAL zaman aşımı veya hata", reservationId);
             }
 
+            // 5. Sonuç Alma ve Kaydetme
             var result = await _queue.GetResultAsync(basePath, requestId);
             var urls = result is null ? new List<string>() : adapter.ExtractImageUrls(result);
             if (urls.Count == 0)
             {
                 await Release(userId, reservationId.Value, "Çıktı alınamadı", authToken);
-                return new ProcessingResult(false, null, "Çıktı alınamadı", reservationId);
+                return Fail("Çıktı alınamadı", reservationId);
             }
 
             var savedPath = await DownloadAll(
-                urls, req.OutputFormat ?? cfg.DefaultOutputFormat,
-                $"{modelKey}_{jobId}_t2i");
+                urls,
+                req.OutputFormat ?? cfg.DefaultOutputFormat,
+                $"{modelKey.Replace("/", "_")}_{jobId}_t2i");
 
+            // 6. COMMIT (Para Düşme)
             var commit = await _wallet.CommitReservationAsync(userId, new CommitReservationRequest(reservationId.Value), authToken);
             if (!commit.Success)
             {
+                // Para düşülemedi ama işlem bitti. Güvenlik gereği fail dönüyoruz.
                 await Release(userId, reservationId.Value, "Commit başarısız", authToken);
-                return new ProcessingResult(false, null, "Ödeme işlemi tamamlanamadı", reservationId);
+                return Fail("Ödeme işlemi tamamlanamadı", reservationId);
             }
 
             MaybeScheduleCleanup(savedPath);
@@ -94,16 +107,16 @@ public sealed class FalJobsService : IFalJobsService
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "T2I hata, job {JobId}", jobId);
+            _logger.LogError(ex, "T2I Hata: {JobId}", jobId);
             if (reservationId.HasValue)
-                await Release(userId, reservationId.Value, $"System error: {ex.Message}", authToken);
-            return new ProcessingResult(false, null, $"İç sistem hatası: {ex.Message}", reservationId);
+                await Release(userId, reservationId.Value, $"SysErr: {ex.Message}", authToken);
+            return Fail($"Sistem hatası: {ex.Message}", reservationId);
         }
     }
 
     public async Task<ProcessingResult> ImageEditAsync(string modelKey, ImageEditRequest req, string userId, string authToken)
     {
-        if (!TryGetModel(modelKey, out var adapter, out var modelConfig, out var err))
+        if (!TryGetModel(modelKey, out var adapter, out var cfg, out var err))
             return Fail(err);
 
         if (!adapter.SupportsImageEdit)
@@ -114,74 +127,59 @@ public sealed class FalJobsService : IFalJobsService
 
         try
         {
-            var coin = GetPrice(modelKey, "ImageEdit");
-            reservationId = (await _wallet.CreateReservationAsync(
-                userId, new CreateReservationRequest(jobId, coin, 30), authToken)).ReservationId;
+            var resResponse = await _wallet.CreateReservationAsync(
+                userId,
+                new CreateReservationRequest(jobId, modelKey, 30),
+                authToken);
 
-            _logger.LogInformation("Image edit başlıyor - Model: {Model}, User: {User}, Job: {JobId}",
-                modelKey, userId, jobId);
+            reservationId = resResponse.ReservationId;
 
-            // ACTION path (submit) ve BASE path (status/result) ayır
-            var submitPath = adapter.GetImageEditPath(modelConfig); // ör: "fal-ai/nano-banana/edit"
-            var basePath = modelConfig.ModelPath!;                  // ör: "fal-ai/nano-banana"
+            var submitPath = adapter.GetImageEditPath(cfg);
+            var basePath = cfg.ModelPath!;
 
-            var payload = adapter.BuildImageEditPayload(req, modelConfig);
-            _logger.LogInformation("FAL Payload:\n{Payload}",
-    System.Text.Json.JsonSerializer.Serialize(payload,
-        new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
-
+            var payload = adapter.BuildImageEditPayload(req, cfg);
             var requestId = await _queue.SubmitAsync(submitPath, payload);
-            _logger.LogInformation("FAL request ID: {RequestId}", requestId);
 
             var completed = await PollUntilCompleted(basePath, requestId);
             if (!completed)
             {
-                await Release(userId, reservationId.Value, "FAL zaman aşımı veya hata", authToken);
-                return new ProcessingResult(false, null, "FAL zaman aşımı veya hata", reservationId);
+                await Release(userId, reservationId.Value, "FAL zaman aşımı/hata", authToken);
+                return Fail("FAL zaman aşımı veya hata", reservationId);
             }
 
             var result = await _queue.GetResultAsync(basePath, requestId);
-
-            // === CHANGED: result.Images kontrolü kaldırıldı; null result varsa erken çık. ===
-            if (result is null)
+            var urls = result is null ? new List<string>() : adapter.ExtractImageUrls(result);
+            if (urls.Count == 0)
             {
-                await Release(userId, reservationId.Value, "FAL'dan sonuç nesnesi dönmedi", authToken);
-                return new ProcessingResult(false, null, "FAL'dan sonuç nesnesi dönmedi", reservationId);
+                await Release(userId, reservationId.Value, "Çıktı alınamadı", authToken);
+                return Fail("Çıktı alınamadı", reservationId);
             }
 
-            // === CHANGED: Her zaman adapter.ExtractImageUrls(result) kullan ===
-            var imageUrls = adapter.ExtractImageUrls(result);
-            if (imageUrls is null || imageUrls.Count == 0)
-            {
-                await Release(userId, reservationId.Value, "FAL'dan görüntü dönmedi", authToken);
-                return new ProcessingResult(false, null, "FAL'dan görüntü dönmedi", reservationId);
-            }
-
-            var filePath = await DownloadAll(
-                imageUrls, req.OutputFormat ?? modelConfig.DefaultOutputFormat,
-                $"{modelKey}_{jobId}_edit");
+            var savedPath = await DownloadAll(
+                urls,
+                req.OutputFormat ?? cfg.DefaultOutputFormat,
+                $"{modelKey.Replace("/", "_")}_{jobId}_edit");
 
             var commit = await _wallet.CommitReservationAsync(userId, new CommitReservationRequest(reservationId.Value), authToken);
             if (!commit.Success)
             {
                 await Release(userId, reservationId.Value, "Commit başarısız", authToken);
-                return new ProcessingResult(false, null, "Ödeme işlemi tamamlanamadı", reservationId);
+                return Fail("Ödeme işlemi tamamlanamadı", reservationId);
             }
 
-            MaybeScheduleCleanup(filePath);
-            return new ProcessingResult(true, filePath, null, reservationId);
+            MaybeScheduleCleanup(savedPath);
+            return new ProcessingResult(true, savedPath, null, reservationId);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Image edit hatası - Model: {Model}, User: {User}, Job: {JobId}",
-                modelKey, userId, jobId);
+            _logger.LogError(ex, "Edit Hata: {JobId}", jobId);
             if (reservationId.HasValue)
-                await Release(userId, reservationId.Value, $"System error: {ex.Message}", authToken);
-            return new ProcessingResult(false, null, $"İç sistem hatası: {ex.Message}", reservationId);
+                await Release(userId, reservationId.Value, $"SysErr: {ex.Message}", authToken);
+            return Fail($"Sistem hatası: {ex.Message}", reservationId);
         }
     }
 
-    // Helper methods...
+    // --- YARDIMCI METODLAR ---
 
     private bool TryGetModel(string key, out IFalModelAdapter adapter, out FalModelConfig cfg, out string error)
     {
@@ -251,32 +249,24 @@ public sealed class FalJobsService : IFalJobsService
         }
     }
 
-    private long GetPrice(string modelKey, string op)
-    {
-        var keyNew = $"Pricing:Fal:{modelKey}:{op}";
-        var p = _cfg.GetValue<long?>(keyNew);
-        if (p.HasValue) return p.Value;
-
-        var keyOld = $"Pricing:Fal{op}";
-        p = _cfg.GetValue<long?>(keyOld);
-        if (p.HasValue) return p.Value;
-
-        return 50L;
-    }
-
     private static string NewJobId(string userId, string modelKey, string op)
     {
         var ts = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
         var rnd = Random.Shared.Next(1000, 9999);
         var u = string.IsNullOrEmpty(userId) ? "anon" : userId[..Math.Min(8, userId.Length)];
-        return $"{modelKey}-{op}-{u}-{ts}-{rnd}";
+        // '/' karakteri dosya yolunu bozar, o yüzden '-' ile değiştiriyoruz
+        return $"{modelKey.Replace("/", "-")}-{op}-{u}-{ts}-{rnd}";
     }
 
     private async Task Release(string userId, Guid reservationId, string reason, string authToken)
     {
         try
         {
-            var res = await _wallet.ReleaseReservationAsync(userId, new ReleaseReservationRequest(reservationId, reason), authToken);
+            var res = await _wallet.ReleaseReservationAsync(
+                userId,
+                new ReleaseReservationRequest(reservationId, reason),
+                authToken);
+
             if (!res.Success) _logger.LogWarning("Release failed {ReservationId}", reservationId);
         }
         catch (Exception ex)
@@ -304,5 +294,5 @@ public sealed class FalJobsService : IFalJobsService
         });
     }
 
-    private static ProcessingResult Fail(string msg) => new(false, null, msg, null);
+    private static ProcessingResult Fail(string msg, Guid? r = null) => new(false, null, msg, r);
 }

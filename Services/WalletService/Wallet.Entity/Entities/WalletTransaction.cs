@@ -1,39 +1,30 @@
-﻿using System;
+﻿using Wallet.Entity.Common;
+using Wallet.Entity.Enums;
 
-namespace Wallet.Entity.Entities
+namespace Wallet.Entity.Entities;
+
+public class WalletTransaction : BaseEntity
 {
-    /// <summary>
-    /// Eklemeli hareket defteri (ledger). Doğruluk kaynağı burasıdır.
-    /// </summary>
-    public class WalletTransaction
-    {
-        public Guid Id { get; set; } = Guid.NewGuid();
-        public Guid WalletAccountId { get; set; }
+    public Guid WalletAccountId { get; set; }
 
-        public TransactionType Type { get; set; }                  // Credit / Debit / Reserve / Release
-        public long AmountInKurus { get; set; }                  // +/− yön Type ile anlam kazanır (Credit:+, Debit:−)
+    // İşlem Tipi (Credit/Debit)
+    public TransactionType Type { get; set; }
 
-        /// <summary>
-        /// İş/işlem referansı (örn. Processing JobId, AssetId, PaymentId)
-        /// </summary>
-        public string? Reference { get; set; }
+    // İşlemi yapan kaynak (Örn: "ImageService", "PaymentProvider")
+    public string Source { get; set; } = default!;
 
-        /// <summary>
-        /// Aynı işlemin tekrar gelmesine karşı benzersiz anahtar (örn. userId:jobId:phase).
-        /// DB'de unique index olacak.
-        /// </summary>
-        public string? IdempotencyKey { get; set; }
+    // Değişim miktarı (Harcama ise eksi, yükleme ise artı)
+    public decimal Amount { get; set; }
 
-        public string? Reason { get; set; }
+    // İşlemden sonraki bakiye snapshot'ı
+    public decimal BalanceAfter { get; set; }
 
-        public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
-    }
+    // Dış referans ID (JobId veya PaymentId)
+    public string? ReferenceId { get; set; }
 
-    public enum TransactionType:int
-    {
-        Credit = 0,   // bakiye artışı (ödeme onayı vb.)
-        Debit = 1,   // bakiye düşüşü (tahsilat)
-        Reserve = 2,   // geçici bloke (iş başlamadan önce)
-        Release = 3    // bloke çözme (başarısız/iptal)
-    }
+    // Açıklama
+    public string Description { get; set; } = default!;
+
+    // Navigation Prop
+    public virtual WalletAccount WalletAccount { get; set; } = default!;
 }

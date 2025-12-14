@@ -1,22 +1,20 @@
-﻿using System;
+﻿using Wallet.Entity.Common;
+using Wallet.Entity.Enums;
 
-namespace Wallet.Entity.Entities
+namespace Wallet.Entity.Entities;
+
+public class WalletAccount : BaseEntity
 {
-    /// <summary>
-    /// Her kullanıcıya ait tek cüzdan hesabı (TRY varsayılan).
-    /// </summary>
-    public class WalletAccount
-    {
-        public Guid Id { get; set; } = Guid.NewGuid();
-        public Guid UserId { get; set; }// Identity'deki AppUser.Id
-        public string Currency { get; set; } = "TRY";         // Çoklu para için alan hazır
-        public long CurrentBalanceInKurus { get; set; } = 0;           // Performans için anlık bakiye (kaynak = ledger)
-        public bool IsActive { get; set; } = true;
+    public Guid UserId { get; set; } // Identity User ID
 
-        public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
-        public DateTime? UpdatedAtUtc { get; set; }
+    public decimal Balance { get; set; }
 
-        // Eşzamanlılık için (EF'te concurrency token olarak işaretlenecek)
-        public byte[]? RowVersion { get; set; }
-    }
+    public Currency Currency { get; set; } = Currency.Credit;
+
+    // Eşzamanlı işlemlerde veri tutarlılığı için (Concurrency Check)
+    public byte[] RowVersion { get; set; } = default!;
+
+    // İlişkiler
+    public virtual ICollection<WalletTransaction> Transactions { get; set; } = new List<WalletTransaction>();
+    public virtual ICollection<Reservation> Reservations { get; set; } = new List<Reservation>();
 }

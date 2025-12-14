@@ -1,116 +1,143 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Wallet.Entity.Entities;
+using Wallet.Entity.Enums;
 
 namespace Wallet.Persistence.Db;
 
 public class WalletDbContext : DbContext
 {
-    public DbSet<WalletAccount> Accounts => Set<WalletAccount>();
-    public DbSet<WalletTransaction> Transactions => Set<WalletTransaction>();
+    public DbSet<WalletAccount> WalletAccounts => Set<WalletAccount>();
+    public DbSet<WalletTransaction> WalletTransactions => Set<WalletTransaction>();
     public DbSet<Reservation> Reservations => Set<Reservation>();
-    public DbSet<PaymentRecord> Payments => Set<PaymentRecord>();
-    public DbSet<CoinPackage> CoinPackages => Set<CoinPackage>(); // EKLE
+    public DbSet<PaymentRecord> PaymentRecords => Set<PaymentRecord>();
+    public DbSet<CoinPackage> CoinPackages => Set<CoinPackage>();
+    public DbSet<ServicePrice> ServicePrices => Set<ServicePrice>(); // Model Fiyatları
 
     public WalletDbContext(DbContextOptions<WalletDbContext> options) : base(options) { }
 
     protected override void OnModelCreating(ModelBuilder b)
     {
-        // Tüm tablolar wallet şemasına basılacak
+        // Tüm tablolar "wallet" şeması altında toplanır (wallet.WalletAccounts vb.)
         b.HasDefaultSchema("wallet");
 
-        // WalletAccount
+        // --- WalletAccount ---
         b.Entity<WalletAccount>(e =>
         {
-            e.ToTable("Accounts");
+            e.ToTable("WalletAccounts");
             e.HasKey(x => x.Id);
-            e.HasIndex(x => x.UserId).IsUnique();
-            e.Property(x => x.Currency).HasMaxLength(3).IsRequired();
-            e.Property(x => x.CurrentBalanceInKurus).HasColumnType("bigint");
-            e.Property(x => x.RowVersion).IsRowVersion();
+            e.HasIndex(x => x.UserId).IsUnique(); // Bir kullanıcının tek cüzdanı olur
 
-            // Performance index for active wallet queries
-            e.HasIndex(x => new { x.UserId, x.IsActive });
+            // Bakiye (Coin)
+            e.Property(x => x.Balance).HasColumnType("decimal(18,2)");
+
+            // Enum -> String (DB'de "TRY" veya "Credit" yazar, okunabilir olur)
+            e.Property(x => x.Currency).HasConversion<string>().HasMaxLength(10);
+
+            // Concurrency (Aynı anda işlem çakışmasını önler)
+            e.Property(x => x.RowVersion).IsRowVersion();
         });
 
-        // WalletTransaction
+        // --- WalletTransaction ---
         b.Entity<WalletTransaction>(e =>
         {
-            e.ToTable("Transactions");
+            e.ToTable("WalletTransactions");
             e.HasKey(x => x.Id);
+
+            // Performans İndeksleri
             e.HasIndex(x => x.WalletAccountId);
-            e.HasIndex(x => x.CreatedAtUtc);
-            e.Property(x => x.Reference).HasMaxLength(256);
-            e.Property(x => x.Reason).HasMaxLength(256);
-            e.Property(x => x.IdempotencyKey).HasMaxLength(256);
-            e.HasIndex(x => x.IdempotencyKey)
-             .IsUnique()
-             .HasFilter("[IdempotencyKey] IS NOT NULL"); // SQL Server
+            e.HasIndex(x => x.CreatedAt);
+            e.HasIndex(x => x.ReferenceId); // JobId veya PaymentId ile arama için
 
-            // Performance index for reference lookup
-            e.HasIndex(x => x.Reference);
+            e.Property(x => x.Amount).HasColumnType("decimal(18,2)");
+            e.Property(x => x.BalanceAfter).HasColumnType("decimal(18,2)");
 
-            // Composite index for balance calculation queries
-            e.HasIndex(x => new { x.WalletAccountId, x.Type, x.CreatedAtUtc });
+            // Enum -> String (DB'de "Credit" veya "Debit" yazar)
+            e.Property(x => x.Type).HasConversion<string>().HasMaxLength(20);
+
+            e.Property(x => x.Source).HasMaxLength(50);
+            e.Property(x => x.Description).HasMaxLength(256);
+
+            // İlişki: Cüzdan silinirse hareketler silinmesin
+            e.HasOne(t => t.WalletAccount)
+             .WithMany(w => w.Transactions)
+             .HasForeignKey(t => t.WalletAccountId)
+             .OnDelete(DeleteBehavior.Restrict);
         });
 
-        // Reservation
+        // --- Reservation ---
         b.Entity<Reservation>(e =>
         {
             e.ToTable("Reservations");
             e.HasKey(x => x.Id);
+
             e.HasIndex(x => x.WalletAccountId);
-            e.HasIndex(x => x.Status);
-            e.HasIndex(x => x.ExpiresAtUtc);
-            e.Property(x => x.JobId).HasMaxLength(128).IsRequired();
-            e.Property(x => x.IdempotencyKey).HasMaxLength(256);
-            e.HasIndex(x => x.IdempotencyKey)
-             .IsUnique()
-             .HasFilter("[IdempotencyKey] IS NOT NULL");
+            e.HasIndex(x => x.Status); // Aktif rezervasyonları bulmak için önemli
+            e.HasIndex(x => x.ExpiresAt); // Süresi dolanları temizlemek için
 
-            // Critical index for TTL cleanup and active reservations
-            e.HasIndex(x => new { x.Status, x.ExpiresAtUtc });
+            e.Property(x => x.Amount).HasColumnType("decimal(18,2)");
+            e.Property(x => x.ModelSystemName).HasMaxLength(100);
 
-            // Index for wallet + status queries (reservation lookups)
-            e.HasIndex(x => new { x.WalletAccountId, x.Status });
+            // Enum -> String ("Active", "Committed", "Expired")
+            e.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
 
-            // Index for job-based lookups
-            e.HasIndex(x => x.JobId);
+            e.HasOne(r => r.WalletAccount)
+             .WithMany(w => w.Reservations)
+             .HasForeignKey(r => r.WalletAccountId)
+             .OnDelete(DeleteBehavior.Restrict);
         });
 
-        // PaymentRecord
+        // --- PaymentRecord ---
         b.Entity<PaymentRecord>(e =>
         {
-            e.ToTable("Payments");
+            e.ToTable("PaymentRecords");
             e.HasKey(x => x.Id);
+
             e.HasIndex(x => x.WalletAccountId);
-            e.HasIndex(x => x.Provider);
-            e.HasIndex(x => x.ProviderIntentId);
-            e.Property(x => x.Provider).HasMaxLength(32).IsRequired();
-            e.Property(x => x.ProviderIntentId).HasMaxLength(128).IsRequired();
-            e.Property(x => x.ProviderTxnId).HasMaxLength(128);
-            e.Property(x => x.IdempotencyKey).HasMaxLength(256);
-            e.HasIndex(x => x.IdempotencyKey)
-             .IsUnique()
-             .HasFilter("[IdempotencyKey] IS NOT NULL");
+            e.HasIndex(x => x.ProviderTransactionId); // Iyzico/Stripe ID ile arama
+            e.HasIndex(x => x.IdempotencyKey).IsUnique(); // Çift ödemeyi önler
 
-            // Index for provider transaction lookup
-            e.HasIndex(x => x.ProviderTxnId);
+            e.Property(x => x.PaidAmount).HasColumnType("decimal(18,2)"); // Gerçek Para (TRY)
+            e.Property(x => x.CoinAmount).HasColumnType("decimal(18,2)"); // Alınan Coin
 
-            // Composite index for webhook processing
-            e.HasIndex(x => new { x.Provider, x.Status, x.CreatedAtUtc });
+            e.Property(x => x.Provider).HasMaxLength(50);
+            e.Property(x => x.Currency).HasMaxLength(5).HasDefaultValue("TRY");
+
+            // Enum -> String ("Succeeded", "Pending")
+            e.Property(x => x.Status).HasConversion<string>().HasMaxLength(20);
+
             e.HasOne(p => p.WalletAccount)
-     .WithMany()
-     .HasForeignKey(p => p.WalletAccountId)
-     .OnDelete(DeleteBehavior.Restrict);
+             .WithMany()
+             .HasForeignKey(p => p.WalletAccountId)
+             .OnDelete(DeleteBehavior.Restrict);
         });
+
+        // --- CoinPackage ---
         b.Entity<CoinPackage>(e =>
         {
             e.ToTable("CoinPackages");
             e.HasKey(x => x.Id);
-            e.Property(x => x.Name).HasMaxLength(50).IsRequired();
-            e.Property(x => x.PriceUSD).HasColumnType("decimal(10,2)");
-            e.Property(x => x.Description).HasMaxLength(100);
-            e.HasIndex(x => new { x.IsActive, x.PriceUSD });
+
+            e.Property(x => x.Name).HasMaxLength(100).IsRequired();
+            e.Property(x => x.Description).HasMaxLength(256);
+
+            e.Property(x => x.Price).HasColumnType("decimal(18,2)");      // TRY Fiyatı
+            e.Property(x => x.CoinAmount).HasColumnType("decimal(18,2)"); // Coin Karşılığı
+
+            // Sadece aktif olanları ve fiyata göre sıralı çekmek için index
+            e.HasIndex(x => new { x.IsActive, x.DisplayOrder });
+        });
+
+        // --- ServicePrice (Model Fiyatları) ---
+        b.Entity<ServicePrice>(e =>
+        {
+            e.ToTable("ServicePrices");
+            e.HasKey(x => x.Id);
+
+            // Model adı benzersiz olmalı (örn: "fal-ai/flux-pro")
+            e.HasIndex(x => x.ModelSystemName).IsUnique();
+
+            e.Property(x => x.UnitPrice).HasColumnType("decimal(18,2)");
+            e.Property(x => x.Currency).HasConversion<string>().HasMaxLength(10);
         });
     }
 }

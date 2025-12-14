@@ -1,40 +1,35 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using Wallet.Persistence.Db;
 
-namespace Wallet.Persistence.Persistence
+namespace Wallet.Persistence.Persistence;
+
+public static class DependencyInjection
 {
-    public static class DependencyInjection
+    public static IServiceCollection AddWalletPersistence(this IServiceCollection services, IConfiguration cfg)
     {
-        /// <summary>
-        /// Tek veritabanı yaklaşımı: Varsayılan olarak IdentityDb connection string'i kullanır.
-        /// İstersen appsettings'e "WalletDb" ekleyerek ayrı bir cs de verebilirsin.
-        /// </summary>
-        public static IServiceCollection AddWalletPersistence(this IServiceCollection services, IConfiguration cfg)
+        // Öncelik "WalletDb", yoksa "IdentityDb" (Aynı sunucuda farklı şema kullanıyorsan)
+        var cs = cfg.GetConnectionString("WalletDb")
+                 ?? cfg.GetConnectionString("IdentityDb")
+                 ?? throw new InvalidOperationException("ConnectionStrings:WalletDb bulunamadı.");
+
+        services.AddDbContextPool<WalletDbContext>(opt =>
         {
-            var cs = cfg.GetConnectionString("WalletDb")
-                     ?? cfg.GetConnectionString("IdentityDb") // aynı DB, farklı şema
-                     ?? throw new InvalidOperationException("ConnectionStrings:IdentityDb veya WalletDb tanımlı olmalı.");
-
-            services.AddDbContextPool<WalletDbContext>(opt =>
+            opt.UseSqlServer(cs, sql =>
             {
-                opt.UseSqlServer(cs, sql =>
-                {
-                    sql.EnableRetryOnFailure(5, TimeSpan.FromSeconds(10), null);
-                    sql.MigrationsAssembly(typeof(WalletDbContext).Assembly.FullName);
-                });
-
-                if (cfg.GetValue<bool>("EfCore:EnableDetailedErrors")) opt.EnableDetailedErrors();
-                if (cfg.GetValue<bool>("EfCore:EnableSensitiveDataLogging")) opt.EnableSensitiveDataLogging();
+                sql.EnableRetryOnFailure(5, TimeSpan.FromSeconds(10), null);
+                sql.MigrationsAssembly(typeof(WalletDbContext).Assembly.FullName);
             });
 
-            return services;
-        }
+            // Geliştirme ortamında detaylı hata logları
+            if (cfg.GetValue<bool>("EfCore:EnableDetailedErrors"))
+            {
+                opt.EnableDetailedErrors();
+                opt.EnableSensitiveDataLogging();
+            }
+        });
+
+        return services;
     }
 }

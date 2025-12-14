@@ -6,24 +6,34 @@ using Identity.BusinessLayer.Options;
 using Identity.PersistenceLayer.Persistence;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
-using Microsoft.IdentityModel.JsonWebTokens; // Bu using'i ekleyin
 using Identity.ApplicationLayer.Validators;
-using System.IdentityModel.Tokens.Jwt;
+using Identity.EntityLayer.Entities; // Role entities için
+using Microsoft.AspNetCore.Identity; // RoleManager için
+using Microsoft.AspNetCore.HttpOverrides; // IP forwarding için
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Persistence + Business (SQL Server & Identity)
+// 1. GÜVENLÝK: Reverse Proxy (Nginx/Docker) için IP baþlýklarýný okuma ayarý
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    // Localde test ederken bilinen proxy limitini kaldýrýyoruz
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+
+// Persistence + Business
 builder.Services.AddIdentityPersistence(builder.Configuration);
 builder.Services.AddIdentityBusiness(builder.Configuration);
 
-// FluentValidation (RegisterRequestValidator vs.)
+// FluentValidation
 builder.Services.AddFluentValidationAutoValidation();
 builder.Services.AddValidatorsFromAssemblyContaining<RegisterRequestValidator>();
 
-// JWT claims mapping fix - BU SATIRI EKLEYÝN
-JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
+// JWT Mapping Fix
+System.IdentityModel.Tokens.Jwt.JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
 
-// JWT ayarý (appsettings: Jwt)
+// JWT Ayarlarý
 var jwt = builder.Configuration.GetSection("Jwt").Get<JwtOptions>()
           ?? throw new InvalidOperationException("Jwt ayarlarý eksik.");
 
@@ -43,7 +53,7 @@ builder.Services
             ValidateIssuerSigningKey = true,
             ValidateLifetime = true,
             ClockSkew = TimeSpan.Zero,
-            NameClaimType = "sub" // Bu da yardýmcý olabilir
+            NameClaimType = "sub"
         };
     });
 
@@ -53,7 +63,6 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new() { Title = "Identity API", Version = "v1" });
-    // Swagger'da Bearer auth
     c.AddSecurityDefinition("Bearer", new()
     {
         Name = "Authorization",
@@ -74,8 +83,29 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
-app.UseSwagger();
-app.UseSwaggerUI();
+// 2. PERFORMANS: Uygulama ayaða kalkarken Rolleri bir kere kontrol et/oluþtur (Seeding)
+using (var scope = app.Services.CreateScope())
+{
+    var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<AppRole>>();
+    var roles = new[] { "user", "admin" }; // Sistemdeki tüm roller
+    foreach (var role in roles)
+    {
+        if (!await roleManager.RoleExistsAsync(role))
+        {
+            await roleManager.CreateAsync(new AppRole { Name = role });
+        }
+    }
+}
+
+// Middleware Sýralamasý Önemlidir
+app.UseForwardedHeaders(); // IP düzeltmesi en baþta olmalý
+
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
+
 app.UseRouting();
 app.UseAuthentication();
 app.UseAuthorization();

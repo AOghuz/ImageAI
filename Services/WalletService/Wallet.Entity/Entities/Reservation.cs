@@ -1,36 +1,27 @@
-﻿using System;
+﻿using Wallet.Entity.Common;
+using Wallet.Entity.Enums;
 
-namespace Wallet.Entity.Entities
+namespace Wallet.Entity.Entities;
+
+public class Reservation : BaseEntity
 {
-    /// <summary>
-    /// İş başlamadan önce ayrılan (bloke edilen) tutar.
-    /// Başarıda Commit, hata/iptalde Release edilir.
-    /// </summary>
-    public class Reservation
-    {
-        public Guid Id { get; set; } = Guid.NewGuid();
-        public Guid WalletAccountId { get; set; }
+    public Guid WalletAccountId { get; set; }
 
-        public long AmountInKurus { get; set; }
-        public string JobId { get; set; } = default!;      // ProcessingService iş kimliği (idempotensi için kritik)
+    // Hangi model için rezerve edildi?
+    public string ModelSystemName { get; set; } = default!;
 
-        public ReservationStatus Status { get; set; } = ReservationStatus.Active;
-        public DateTime ExpiresAtUtc { get; set; }                  // TTL (örn. oluşturma + 30dk)
-        public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
-        public DateTime? CompletedAtUtc { get; set; }                  // Commit/Release zaman damgası
+    // Rezerve edilen tutar
+    public decimal Amount { get; set; }
 
-        /// <summary>
-        /// İdempotensi için benzersiz anahtar (örn. userId:jobId:reserve).
-        /// DB'de unique index olacak.
-        /// </summary>
-        public string? IdempotencyKey { get; set; }
-    }
+    // Ne zamana kadar geçerli?
+    public DateTime ExpiresAt { get; set; }
 
-    public enum ReservationStatus
-    {
-        Active = 1,
-        Committed = 2,
-        Released = 3,
-        Expired = 4
-    }
+    // Durum (Active, Committed, Released)
+    public ReservationStatus Status { get; set; }
+
+    // İşlem biterse oluşan Transaction ID'si
+    public Guid? RelatedTransactionId { get; set; }
+
+    // Navigation Prop
+    public virtual WalletAccount WalletAccount { get; set; } = default!;
 }

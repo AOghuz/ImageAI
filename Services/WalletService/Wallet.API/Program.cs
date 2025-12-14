@@ -1,111 +1,84 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
-using Microsoft.IdentityModel.JsonWebTokens; // Bu using'i ekleyin
-using Wallet.Persistence.Persistence;
-using Wallet.Business.Business;
+using Microsoft.OpenApi.Models;
 using System.Text;
-using Wallet.Application.DTOs;
-using System.IdentityModel.Tokens.Jwt;
-using FluentValidation.AspNetCore;
-using FluentValidation;
+using Wallet.Business.Business;     // Wallet Business Layer
+using Wallet.Persistence.Persistence; // Wallet Persistence Layer
 
 var builder = WebApplication.CreateBuilder(args);
-builder.Services.AddFluentValidationAutoValidation();
-builder.Services.AddValidatorsFromAssemblyContaining<CreateReservationRequestValidator>();
-// Add services to the container.
+
+// 1. Ayarlar (Appsettings'den)
+var jwtSection = builder.Configuration.GetSection("Jwt");
+var jwtIssuer = jwtSection["Issuer"];
+var jwtAudience = jwtSection["Audience"];
+var jwtSecret = jwtSection["Secret"];
+
+// 2. Servis Kayýtlarý (Wallet Katmanlarý)
+// BURASI ÇOK ÖNEMLÝ: Identity deðil Wallet servislerini ekliyoruz.
+builder.Services.AddWalletPersistence(builder.Configuration);
+builder.Services.AddWalletBusiness(builder.Configuration);
+
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
+
+// 3. Swagger (Bearer Token Destekli)
 builder.Services.AddSwaggerGen(c =>
 {
-    c.SwaggerDoc("v1", new() { Title = "Wallet API", Version = "v1" });
-    c.AddSecurityDefinition("Bearer", new()
+    c.SwaggerDoc("v1", new OpenApiInfo { Title = "Wallet API", Version = "v1" });
+
+    // Bearer Token Kilidi
+    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
     {
         Name = "Authorization",
-        Type = Microsoft.OpenApi.Models.SecuritySchemeType.Http,
+        Type = SecuritySchemeType.Http,
         Scheme = "bearer",
         BearerFormat = "JWT",
-        In = Microsoft.OpenApi.Models.ParameterLocation.Header,
-        Description = "JWT için: Bearer {token}"
+        In = ParameterLocation.Header,
+        Description = "JWT Token giriniz: Bearer {token}"
     });
-    c.AddSecurityRequirement(new()
+
+    c.AddSecurityRequirement(new OpenApiSecurityRequirement
     {
         {
-            new()
+            new OpenApiSecurityScheme
             {
-                Reference = new()
-                {
-                    Type = Microsoft.OpenApi.Models.ReferenceType.SecurityScheme,
-                    Id = "Bearer"
-                }
+                Reference = new OpenApiReference { Type = ReferenceType.SecurityScheme, Id = "Bearer" }
             },
-            new string[] { }
+            Array.Empty<string>()
         }
     });
 });
 
-// Add custom services (Persistence + Business layers)
-builder.Services.AddWalletPersistence(builder.Configuration);
-builder.Services.AddWalletBusiness(builder.Configuration);
-
-// JWT claims mapping fix - BU SATIRI EKLEYÝN
-JwtSecurityTokenHandler.DefaultInboundClaimTypeMap.Clear();
-
-// Enable JWT Authentication
-var jwt = builder.Configuration.GetSection("Jwt").Get<JwtOptions>();
-if (string.IsNullOrEmpty(jwt?.Secret))
-{
-    throw new InvalidOperationException("JWT Secret is missing in configuration.");
-}
-
-// DÜZELTME: Base64Url encoding'i kaldýrdýk
-var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwt.Secret));
-
-builder.Services
-    .AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(o =>
+// 4. Authentication (JWT)
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
     {
-        o.TokenValidationParameters = new TokenValidationParameters
+        options.TokenValidationParameters = new TokenValidationParameters
         {
-            ValidIssuer = jwt.Issuer,
-            ValidAudience = jwt.Audience,
-            IssuerSigningKey = key,
             ValidateIssuer = true,
             ValidateAudience = true,
-            ValidateIssuerSigningKey = true,
             ValidateLifetime = true,
-            ClockSkew = TimeSpan.Zero,
-            NameClaimType = "sub" // Bu da yardýmcý olabilir
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = jwtIssuer,
+            ValidAudience = jwtAudience,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret ?? "varsayilan_cok_gizli_anahtar_123456")),
+            ClockSkew = TimeSpan.Zero
         };
     });
-builder.Services.AddLogging(logging =>
-{
-    logging.AddConsole();
-    logging.SetMinimumLevel(LogLevel.Debug);
-});
-builder.Services.AddAuthorization();
 
 var app = builder.Build();
 
-// Swagger Setup
-app.UseSwagger();
-app.UseSwaggerUI();
-app.UseExceptionHandler("/error");
-
-// Request logging
+// 5. Middleware Pipeline
 if (app.Environment.IsDevelopment())
 {
-    app.UseDeveloperExceptionPage();
-}
-else
-{
-    app.UseHsts();
-    app.UseHttpsRedirection();
+    app.UseSwagger();
+    app.UseSwaggerUI();
 }
 
-// Health check endpoint ekleyin
-app.MapGet("/health", () => Results.Ok(new { status = "healthy", timestamp = DateTime.UtcNow }));
-app.UseAuthentication();
-app.UseAuthorization();
+app.UseHttpsRedirection();
+
+app.UseAuthentication(); // Kimlik Doðrulama
+app.UseAuthorization();  // Yetkilendirme
 
 app.MapControllers();
 

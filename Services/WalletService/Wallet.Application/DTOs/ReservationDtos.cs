@@ -1,36 +1,22 @@
-﻿namespace Wallet.Application.DTOs;
+﻿using Wallet.Entity.Enums; // Enum'un burada olduğundan emin ol
 
-public record CreateReservationRequest(
-    string JobId,
-    long AmountInKurus,
-    int TtlMinutes = 30,
-    string? IdempotencyKey = null
-);
+namespace Wallet.Application.DTOs;
 
-public record CreateReservationResponse(
-    Guid ReservationId,
-    DateTime ExpiresAtUtc
-);
+// API'den gelen istek (Controller'ın beklediği)
+public record CreateReservationRequestDto(string JobId, string ModelSystemName, int TtlMinutes = 30);
 
-public record CommitReservationRequest(
-    Guid ReservationId,
-    string? IdempotencyKey = null
-);
+// API'nin döndüğü cevap
+public record ReservationResponseDto(Guid ReservationId, DateTime ExpiresAtUtc);
 
-public record CommitReservationResponse(
-    Guid ReservationId,
-    long DebitedAmountInKurus,
-    DateTime CommittedAtUtc
-);
+// Commit ve Release istekleri
+public record CommitReservationRequestDto(Guid ReservationId);
+public record ReleaseReservationRequestDto(Guid ReservationId, string Reason);
 
-public record ReleaseReservationRequest(
-    Guid ReservationId,
-    string? Reason = null,
-    string? IdempotencyKey = null
-);
-
-public record ReleaseReservationResponse(
-    Guid ReservationId,
-    long ReleasedAmountInKurus,
-    DateTime ReleasedAtUtc
-);
+// Servis katmanının döndüğü DTO (Eski yapını bozmamak için Enum'lu hali)
+public class ReservationDto
+{
+    public Guid Id { get; set; }
+    public decimal Amount { get; set; }
+    public DateTime ExpiresAt { get; set; }
+    public ReservationStatus Status { get; set; }
+}

@@ -1,45 +1,66 @@
-﻿using ImageProcessingService.Integrations.Fal;
-using ImageProcessingService.Services.Fal.Abstract.Requests;
+﻿using ImageProcessingService.Services.Fal.Generic.Storage;
+using System.Text.Json;
 
 namespace ImageProcessingService.Services.Fal.Adapters.Core;
 
-public abstract class FalModelAdapterBase : IFalModelAdapter
+public abstract class FalModelAdapterBase
 {
-    public abstract string Key { get; }
-    public virtual bool SupportsTextToImage => true;
-    public virtual bool SupportsImageEdit => true;
+    public abstract IEnumerable<string> SupportedModels { get; }
 
-    public virtual int ClampNumImages(int? n, FalModelConfig cfg)
-        => Math.Clamp(n ?? 1, 1, Math.Max(1, cfg.MaxImages));
-
-    public virtual string NormalizeFormat(string? fmt, FalModelConfig cfg)
+    protected void MergeAdditionalParams(Dictionary<string, object> payload, Dictionary<string, object> additionalParams)
     {
-        var f = (fmt ?? cfg.DefaultOutputFormat ?? "jpeg").ToLowerInvariant();
-        return f == "png" ? "png" : "jpeg";
+        if (additionalParams == null) return;
+        foreach (var kvp in additionalParams)
+        {
+            if (kvp.Value == null) continue;
+            payload[kvp.Key] = kvp.Value;
+        }
     }
 
-    public virtual string GetTextToImagePath(FalModelConfig cfg) => cfg.ModelPath!;
-    public virtual string GetImageEditPath(FalModelConfig cfg) => cfg.ModelPath! + "/edit";
-
-    public virtual object BuildTextToImagePayload(TextToImageRequest req, FalModelConfig cfg)
-        => new
+    // DÜZELTME: 'dynamic' yerine 'object' yaptık.
+    protected Task<ProcessingResult> MapToResultDefaultAsync(object jobResult, IGeneratedFileStore fileStore)
+    {
+        try
         {
-            prompt = req.Prompt,
-            num_images = ClampNumImages(req.NumImages, cfg),
-            output_format = NormalizeFormat(req.OutputFormat, cfg)
-            // Extras gerekiyorsa alt sınıfta override edilir
-        };
+            // URL kontrolü yapıyoruz sadece, indirme işlemini FalJobsService yapıyor.
+            var urls = ExtractImageUrls(jobResult);
+            if (urls == null || urls.Count == 0)
+            {
+                return Task.FromResult(new ProcessingResult(false, null, "Fal.AI sonucunda resim URL'i bulunamadı."));
+            }
 
-    public virtual object BuildImageEditPayload(ImageEditRequest req, FalModelConfig cfg)
-        => new
+            // Başarılı olduğunu belirtmek için boş bir success dönüyoruz.
+            // Asıl dosya yolu FalJobsService tarafından doldurulacak.
+            return Task.FromResult(new ProcessingResult(true, null, null, null));
+        }
+        catch (Exception ex)
         {
-            prompt = req.Prompt,
-            image_urls = req.ImageDataUris,
-            num_images = ClampNumImages(req.NumImages, cfg),
-            output_format = NormalizeFormat(req.OutputFormat, cfg)
-        };
+            return Task.FromResult(new ProcessingResult(false, null, $"Mapping Hatası: {ex.Message}"));
+        }
+    }
 
-    public virtual IReadOnlyList<string> ExtractImageUrls(FalResult result)
-        => result.Images?.Where(i => !string.IsNullOrWhiteSpace(i.Url)).Select(i => i.Url!).ToList()
-           ?? new List<string>();
+    // DÜZELTME: 'dynamic' yerine 'object' yaptık.
+    public virtual List<string> ExtractImageUrls(object jobResult)
+    {
+        var list = new List<string>();
+
+        // Gelen object aslında bir JsonElement (FalQueueClient'tan geliyor)
+        if (jobResult is not JsonElement json) return list;
+
+        // 1. Format: { "images": [ { "url": "..." } ] }
+        if (json.TryGetProperty("images", out var imagesElem) && imagesElem.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var item in imagesElem.EnumerateArray())
+            {
+                if (item.TryGetProperty("url", out var urlProp)) list.Add(urlProp.GetString()!);
+            }
+        }
+        // 2. Format: { "image": { "url": "..." } }
+        else if (json.TryGetProperty("image", out var imageElem) && imageElem.TryGetProperty("url", out var singleUrl))
+        {
+            list.Add(singleUrl.GetString()!);
+        }
+
+        return list;
+    }
 }

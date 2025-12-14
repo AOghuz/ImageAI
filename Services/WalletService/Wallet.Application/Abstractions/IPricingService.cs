@@ -1,9 +1,8 @@
-﻿using Wallet.Application.DTOs;
+﻿using Wallet.Entity.Entities; // ServicePrice entity'si için
 
 namespace Wallet.Application.Abstractions;
 
 public interface IPricingService
 {
-    /// Operasyona göre tahmini ücret (kuruş) hesaplar.
-    Task<EstimateResponse> EstimateAsync(Guid userId, EstimateRequest request, CancellationToken ct = default);
+    Task<ServicePrice> GetPriceAsync(string modelSystemName);
 }

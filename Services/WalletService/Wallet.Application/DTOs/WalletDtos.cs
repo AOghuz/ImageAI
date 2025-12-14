@@ -1,14 +1,16 @@
-﻿namespace Wallet.Application.DTOs;
+﻿using Wallet.Entity.Enums;
 
-public record EnsureWalletResult(Guid WalletAccountId, bool Created);
+namespace Wallet.Application.DTOs;
 
-public record BalanceDto(long BalanceInKurus, string Currency = "TRY");
+public record WalletBalanceDto(decimal Balance, string Currency);
 
-public record TransactionDto(
-    Guid Id,
-    string Type,           // "Credit","Debit","Reserve","Release"
-    long AmountInKurus,
-    string? Reference,
-    string? Reason,
-    DateTime CreatedAtUtc
-);
+public class WalletTransactionDto
+{
+    public Guid Id { get; set; }
+    public TransactionType Type { get; set; } // Enum (Frontend int veya string görebilir)
+    public decimal Amount { get; set; }
+    public decimal BalanceAfter { get; set; }
+    public string Description { get; set; } = default!;
+    public DateTime CreatedAt { get; set; }
+    public string? ReferenceId { get; set; }
+}
